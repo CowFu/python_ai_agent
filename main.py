@@ -24,7 +24,8 @@ def main():
         print(response.text)
         if user_args.get('verbose', False):
             print(f"User prompt: {user_args['prompt']}")
-            print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+            print(
+                f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
             print(
                 f"Response tokens: {response.usage_metadata.candidates_token_count}")
     else:
@@ -36,7 +37,8 @@ def handle_args():
     if len(sys.argv) < 2:
         print("Usage: python main.py <your prompt here>")
         sys.exit(1)
-    user_args['prompt'] = " ".join(sys.argv[1])
+    if type(sys.argv[1]) is str:
+        user_args['prompt'] = sys.argv[1]
     for arg in sys.argv[2:]:
         match arg:
             case "--verbose":
