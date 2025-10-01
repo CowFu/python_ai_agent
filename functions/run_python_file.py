@@ -1,3 +1,27 @@
+import google.genai.types as types
+
+schema_run_python_file = types.FunctionDeclaration(
+    name="run_python_file",
+    description="Executes a specified Python file within the working directory and returns its output. Limits execution time to 30 seconds.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to read, relative to the working directory.",
+            ),
+            "args": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(
+                    type=types.Type.STRING,
+                ),
+                description="A list of arguments to pass to the Python file when executing it.",
+            ),
+        },
+    ),
+)
+
+
 def run_python_file(working_directory, file_path, args=[]):
     import os
     import subprocess

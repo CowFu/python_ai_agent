@@ -1,5 +1,21 @@
 import os
 from config import MAX_FILE_SIZE
+import google.genai.types as types
+
+schema_get_files_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description="Gets the content of a specified file, constrained to the working directory. Limits content size to 1000 characters.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to read, relative to the working directory.",
+            ),
+        },
+    ),
+)
+
 
 def get_file_content(working_directory, file_path):
     full_path = os.path.join(working_directory, file_path)
@@ -15,7 +31,8 @@ def get_file_content(working_directory, file_path):
             content = file.read()
             # Limit content size to 1000 characters
             if len(content) > MAX_FILE_SIZE:
-                content = content[:MAX_FILE_SIZE] + f'[...File "{file_path}" truncated at 10000 characters]'
+                content = content[:MAX_FILE_SIZE] + \
+                    f'[...File "{file_path}" truncated at 10000 characters]'
         return content
     except Exception as e:
         return f'Error: {str(e)}'
