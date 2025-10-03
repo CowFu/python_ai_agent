@@ -25,14 +25,20 @@ available_functions = types.Tool(
 
 def main():
     system_prompt = """
-                    You are a helpful AI coding agent.
+You are a helpful AI coding agent.
 
-                    When a user asks a question or makes a request, make a function call plan. You can perform the following operations:
+When a user asks a question or makes a request, you should use the available functions to complete the task.
 
-                    - List files and directories
+Available functions:
+- get_files_info: List files and directories in a given path
+- get_file_content: Read the contents of a file
+- write_file: Create or overwrite a file with given content
+- run_python_file: Execute a Python file with optional arguments
 
-                    All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
-                    """
+All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+
+When asked to run a Python file, use the run_python_file function. If no arguments are specified by the user, pass an empty list for arguments.
+"""
     # grab args from command line
     user_args = handle_args()
     if len(sys.argv) >= 1:
@@ -48,7 +54,13 @@ def main():
         )
         if response.function_calls:
             for function_call_part in response.function_calls:
-                print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+                function_call_result = call_function(
+                    function_call_part, user_args.get('verbose', False))
+                if not function_call_result.parts[0]:
+                    raise ValueError("Function response is empty")
+                elif user_args.get('verbose', True):
+                    print(
+                        f"-> {function_call_result.parts[0].function_response.response}")
         else:
             print(response.text)
         if user_args.get('verbose', False):
@@ -76,6 +88,51 @@ def handle_args():
                 print(f"Unknown argument: {arg}")
                 sys.exit(1)
     return user_args
+
+
+def call_function(function_call_part, verbose=False):
+    if verbose:
+        print(
+            f"Calling function: {function_call_part.name}({function_call_part.args})")
+    else:
+        print(f" - Calling function: {function_call_part.name}")
+
+    function_result = None
+
+    match function_call_part.name:
+        case "get_files_info":
+            function_result = get_files_info(
+                './calculator', **function_call_part.args)
+        case "write_file":
+            function_result = write_file(
+                './calculator', **function_call_part.args)
+        case "get_file_content":
+            function_result = get_file_content(
+                './calculator', **function_call_part.args)
+        case "run_python_file":
+            function_result = run_python_file(
+                './calculator', **function_call_part.args)
+        case _:
+            return types.Content(
+                role="tool",
+                parts=[
+                    types.Part.from_function_response(
+                        name=function_call_part.name,
+                        response={
+                            "error": f"Unknown function: {function_call_part.name}"},
+                    )
+                ],
+            )
+
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_call_part.name,
+                response={"result": function_result},
+            )
+        ],
+    )
 
 
 if __name__ == "__main__":
