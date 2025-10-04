@@ -25,50 +25,110 @@ available_functions = types.Tool(
 
 def main():
     system_prompt = """
-You are a helpful AI coding agent.
+        You are a helpful AI coding agent with access to tools for exploring and modifying code.
 
-When a user asks a question or makes a request, you should use the available functions to complete the task.
+        When a user asks a question or makes a request:
+        1. Use the available functions to explore the codebase and gather information
+        2. Start by using get_files_info to see what files are available
+        3. Use get_file_content to read relevant files
+        4. Use run_python_file to test Python files when needed
+        5. Use write_file to create or modify files
 
-Available functions:
-- get_files_info: List files and directories in a given path
-- get_file_content: Read the contents of a file
-- write_file: Create or overwrite a file with given content
-- run_python_file: Execute a Python file with optional arguments
+        Available functions:
+        - get_files_info: List files and directories in a given path (use "." to list current directory)
+        - get_file_content: Read the contents of a file
+        - write_file: Create or overwrite a file with given content
+        - run_python_file: Execute a Python file with optional arguments
 
-All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+        All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
 
-When asked to run a Python file, use the run_python_file function. If no arguments are specified by the user, pass an empty list for arguments.
-"""
+        IMPORTANT: Before answering questions about code, always use the tools to explore and read the actual files. Don't ask the user for clarification when you can use get_files_info and get_file_content to find the answer yourself.
+
+        When you have completed exploring and have enough information to fully answer the user's question, provide a clear and detailed final response.
+        """
+    
     # grab args from command line
     user_args = handle_args()
-    if len(sys.argv) >= 1:
-        messages = [types.Content(
-            role="user", parts=[types.Part(text=user_args["prompt"])]),]
+    
+    if len(sys.argv) >= 2:
+        # Initialize the conversation with the user's prompt
+        messages = [
+            types.Content(
+                role="user", 
+                parts=[types.Part(text=user_args["prompt"])]
+            ),
+        ]
+        
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.0-flash-001',
-            contents=messages,
-            config=types.GenerateContentConfig(
-                tools=[available_functions], system_instruction=system_prompt
-            )
-        )
-        if response.function_calls:
-            for function_call_part in response.function_calls:
-                function_call_result = call_function(
-                    function_call_part, user_args.get('verbose', False))
-                if not function_call_result.parts[0]:
-                    raise ValueError("Function response is empty")
-                elif user_args.get('verbose', True):
-                    print(
-                        f"-> {function_call_result.parts[0].function_response.response}")
+        
+        # Agent loop - maximum 20 iterations
+        max_iterations = 20
+        
+        for iteration in range(max_iterations):
+            try:
+                # Call the model with the entire conversation history
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash-001',
+                    contents=messages,
+                    config=types.GenerateContentConfig(
+                        tools=[available_functions], 
+                        system_instruction=system_prompt
+                    )
+                )
+                
+                # Add the model's response to the conversation
+                # The response.candidates list contains the model's response(s)
+                for candidate in response.candidates:
+                    messages.append(candidate.content)
+                
+                # Check if the model returned a final text response (no more function calls)
+                if response.text and not response.function_calls:
+                    print("Final response:")
+                    print(response.text)
+                    
+                    if user_args.get('verbose', False):
+                        print(f"\nUser prompt: {user_args['prompt']}")
+                        print(f"Total iterations: {iteration + 1}")
+                        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+                        print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+                    
+                    break  # Exit the loop - we're done!
+
+                # If there are function calls, execute them
+                if response.function_calls:
+                    function_responses = []
+                    
+                    for function_call_part in response.function_calls:
+                        function_call_result = call_function(
+                            function_call_part, 
+                            user_args.get('verbose', False)
+                        )
+                        
+                        if not function_call_result.parts[0]:
+                            raise ValueError("Function response is empty")
+                        
+                        if user_args.get('verbose', False):
+                            print(f"-> {function_call_result.parts[0].function_response.response}")
+                        
+                        function_responses.append(function_call_result.parts[0])
+                    
+                    # Add all function results to the conversation as a single message
+                    messages.append(
+                        types.Content(
+                            role="user",  # Tool responses come back as "user" role
+                            parts=function_responses
+                        )
+                    )
+                                
+            except Exception as e:
+                print(f"Error during agent loop: {e}")
+                if user_args.get('verbose', False):
+                    import traceback
+                    traceback.print_exc()
+                break
         else:
-            print(response.text)
-        if user_args.get('verbose', False):
-            print(f"User prompt: {user_args['prompt']}")
-            print(
-                f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-            print(
-                f"Response tokens: {response.usage_metadata.candidates_token_count}")
+            # This executes if we complete all iterations without breaking
+            print("Agent reached maximum iterations without completing the task.")
     else:
         raise ValueError("Please provide a prompt as a command line argument.")
 
@@ -92,8 +152,7 @@ def handle_args():
 
 def call_function(function_call_part, verbose=False):
     if verbose:
-        print(
-            f"Calling function: {function_call_part.name}({function_call_part.args})")
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
     else:
         print(f" - Calling function: {function_call_part.name}")
 
@@ -101,25 +160,20 @@ def call_function(function_call_part, verbose=False):
 
     match function_call_part.name:
         case "get_files_info":
-            function_result = get_files_info(
-                './calculator', **function_call_part.args)
+            function_result = get_files_info('./calculator', **function_call_part.args)
         case "write_file":
-            function_result = write_file(
-                './calculator', **function_call_part.args)
+            function_result = write_file('./calculator', **function_call_part.args)
         case "get_file_content":
-            function_result = get_file_content(
-                './calculator', **function_call_part.args)
+            function_result = get_file_content('./calculator', **function_call_part.args)
         case "run_python_file":
-            function_result = run_python_file(
-                './calculator', **function_call_part.args)
+            function_result = run_python_file('./calculator', **function_call_part.args)
         case _:
             return types.Content(
                 role="tool",
                 parts=[
                     types.Part.from_function_response(
                         name=function_call_part.name,
-                        response={
-                            "error": f"Unknown function: {function_call_part.name}"},
+                        response={"error": f"Unknown function: {function_call_part.name}"},
                     )
                 ],
             )
